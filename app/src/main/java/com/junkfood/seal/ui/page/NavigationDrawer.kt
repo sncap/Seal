@@ -18,10 +18,12 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Subscriptions
@@ -217,6 +219,22 @@ fun NavigationDrawerSheetContent(
             )
 
             NavigationDrawerItem(
+                label = { Text(stringResource(R.string.browser)) },
+                icon = {
+                    Icon(
+                        if (currentRoute == Route.BROWSER) Icons.Filled.Language
+                        else Icons.Outlined.Language,
+                        null,
+                    )
+                },
+                onClick = {
+                    scope
+                        .launch { onDismissRequest() }
+                        .invokeOnCompletion { onNavigateToRoute(Route.BROWSER) }
+                },
+                selected = currentRoute == Route.BROWSER,
+            )
+            NavigationDrawerItem(
                 label = { Text(stringResource(R.string.sponsor)) },
                 icon = { Icon(Icons.Outlined.VolunteerActivism, null) },
                 onClick = {
@@ -383,6 +401,19 @@ fun NavigationRailContent(
             modifier = Modifier,
             selected = currentTopDestination == Route.TASK_LIST,
             onClick = { onNavigateToRoute(Route.TASK_LIST) },
+        )
+
+        NavigationRailItemVariant(
+            icon = {
+                Icon(
+                    if (currentTopDestination == Route.BROWSER) Icons.Filled.Language
+                    else Icons.Outlined.Language,
+                    stringResource(R.string.browser),
+                )
+            },
+            modifier = Modifier,
+            selected = currentTopDestination == Route.BROWSER,
+            onClick = { onNavigateToRoute(Route.BROWSER) },
         )
 
         NavigationRailItemVariant(

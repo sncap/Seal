@@ -32,6 +32,8 @@ object Route {
     const val DONATE = "donate"
     const val TROUBLESHOOTING = "troubleshooting"
 
+    const val BROWSER = "browser"
+
     const val TASK_HASHCODE = "task_hashcode"
     const val TEMPLATE_ID = "template_id"
 }

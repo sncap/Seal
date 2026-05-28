@@ -1,5 +1,13 @@
 <resources>
     <string name="app_name" translatable="false">myBrowser</string>
+    <string name="browser">Browser</string>
+    <string name="browser_refresh">Refresh</string>
+    <string name="browser_home">Home</string>
+    <string name="browser_desktop_mode">Desktop mode</string>
+    <string name="browser_mobile_mode">Mobile mode</string>
+    <string name="browser_detected_videos">Detected videos</string>
+    <string name="browser_no_bookmarks">No bookmarks yet</string>
+    <string name="bookmarks">Bookmarks</string>
     <string name="video_directory">Video folder</string>
     <string name="extract_audio">Save as audio</string>
     <string name="create_thumbnail">Save thumbnail</string>
