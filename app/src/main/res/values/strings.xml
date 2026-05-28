@@ -8,6 +8,10 @@
     <string name="browser_detected_videos">Detected videos</string>
     <string name="browser_no_bookmarks">No bookmarks yet</string>
     <string name="bookmarks">Bookmarks</string>
+    <string name="browser_tabs">Tabs (%1$d)</string>
+    <string name="browser_new_tab">New tab</string>
+    <string name="browser_close_tab">Close tab</string>
+    <string name="browser_max_tabs">Maximum %1$d tabs reached</string>
     <string name="video_directory">Video folder</string>
     <string name="extract_audio">Save as audio</string>
     <string name="create_thumbnail">Save thumbnail</string>

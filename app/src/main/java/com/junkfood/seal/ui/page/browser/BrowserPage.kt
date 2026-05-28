@@ -8,6 +8,7 @@ import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,15 +23,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ArrowForward
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Delete
@@ -41,9 +49,12 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -53,6 +64,8 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -62,6 +75,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -72,6 +86,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -104,27 +119,72 @@ private fun normalizeUrl(input: String): String {
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BrowserPage(
     viewModel: BrowserViewModel = koinViewModel(),
     onDownloadUrl: (String) -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val focusManager = LocalFocusManager.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val maxTabsMessage = stringResource(R.string.browser_max_tabs, MAX_TABS)
 
-    var urlInput by rememberSaveable { mutableStateOf(BROWSER_HOME_URL) }
+    LaunchedEffect(uiState.showMaxTabsSnackbar) {
+        if (uiState.showMaxTabsSnackbar) {
+            snackbarHostState.showSnackbar(maxTabsMessage)
+            viewModel.dismissMaxTabsSnackbar()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Keyed by active tab ID — destroys and recreates WebView state on tab switch
+        key(uiState.activeTab.id) {
+            BrowserTabContent(
+                viewModel = viewModel,
+                uiState = uiState,
+                snackbarHostState = snackbarHostState,
+                onDownloadUrl = onDownloadUrl,
+            )
+        }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+    }
+
+    // Tabs sheet is outside the key so it persists while open
+    if (uiState.showTabsSheet) {
+        TabsSheet(
+            tabs = uiState.tabs,
+            activeTabId = uiState.activeTab.id,
+            onTabClick = { viewModel.switchToTab(it) },
+            onTabClose = { viewModel.closeTab(it) },
+            onNewTab = { viewModel.addTab() },
+            onDismiss = { viewModel.hideTabsSheet() },
+        )
+    }
+}
+
+@SuppressLint("SetJavaScriptEnabled")
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun BrowserTabContent(
+    viewModel: BrowserViewModel,
+    uiState: BrowserUiState,
+    snackbarHostState: SnackbarHostState,
+    onDownloadUrl: (String) -> Unit,
+) {
+    val focusManager = LocalFocusManager.current
+    val activeTab = uiState.activeTab
+
+    var urlInput by rememberSaveable { mutableStateOf(activeTab.url) }
     var isEditingUrl by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
 
-    val webViewState = rememberWebViewState(BROWSER_HOME_URL)
+    val webViewState = rememberWebViewState(activeTab.url)
     val navigator = rememberWebViewNavigator()
-
-    // Capture WebView instance from factory to update UA on desktop mode toggle
     var webViewRef by remember { mutableStateOf<WebView?>(null) }
 
-    // Skip the first emission; only reload when user explicitly toggles
     var desktopModeInitialized by remember { mutableStateOf(false) }
     LaunchedEffect(uiState.isDesktopMode) {
         if (!desktopModeInitialized) {
@@ -136,11 +196,15 @@ fun BrowserPage(
         navigator.reload()
     }
 
-    // Sync URL bar text with actual page URL (only when not typing)
     LaunchedEffect(webViewState.lastLoadedUrl) {
         if (!isEditingUrl) {
             urlInput = webViewState.lastLoadedUrl ?: urlInput
         }
+        webViewState.lastLoadedUrl?.let { viewModel.updateTabUrl(activeTab.id, it) }
+    }
+
+    LaunchedEffect(webViewState.pageTitle) {
+        webViewState.pageTitle?.let { viewModel.updateTabTitle(activeTab.id, it) }
     }
 
     val webViewClient = remember(viewModel) {
@@ -163,14 +227,17 @@ fun BrowserPage(
     val webViewChromeClient = remember { AccompanistWebChromeClient() }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             BrowserTopBar(
                 urlInput = urlInput,
                 isLoading = webViewState.isLoading,
                 isDesktopMode = uiState.isDesktopMode,
-                isBookmarked = uiState.bookmarks.any { it.url == (webViewState.lastLoadedUrl ?: "") },
+                isBookmarked =
+                    uiState.bookmarks.any { it.url == (webViewState.lastLoadedUrl ?: "") },
                 canGoBack = navigator.canGoBack,
                 canGoForward = navigator.canGoForward,
+                tabCount = uiState.tabs.size,
                 showMenu = showMenu,
                 onUrlChange = { urlInput = it },
                 onUrlFocusChange = { isEditingUrl = it },
@@ -194,6 +261,7 @@ fun BrowserPage(
                 },
                 onToggleDesktopMode = { viewModel.toggleDesktopMode() },
                 onShowBookmarks = { viewModel.showBookmarks() },
+                onShowTabs = { viewModel.showTabsSheet() },
                 onMenuExpandChange = { showMenu = it },
             )
         },
@@ -226,7 +294,6 @@ fun BrowserPage(
         )
     }
 
-    // Detected video URLs sheet
     if (uiState.showVideoSheet) {
         ModalBottomSheet(
             onDismissRequest = { viewModel.hideVideoSheet() },
@@ -242,7 +309,6 @@ fun BrowserPage(
         }
     }
 
-    // Bookmarks sheet
     if (uiState.showBookmarksSheet) {
         ModalBottomSheet(
             onDismissRequest = { viewModel.hideBookmarks() },
@@ -271,6 +337,7 @@ private fun BrowserTopBar(
     isBookmarked: Boolean,
     canGoBack: Boolean,
     canGoForward: Boolean,
+    tabCount: Int,
     showMenu: Boolean,
     onUrlChange: (String) -> Unit,
     onUrlFocusChange: (Boolean) -> Unit,
@@ -282,6 +349,7 @@ private fun BrowserTopBar(
     onToggleBookmark: () -> Unit,
     onToggleDesktopMode: () -> Unit,
     onShowBookmarks: () -> Unit,
+    onShowTabs: () -> Unit,
     onMenuExpandChange: (Boolean) -> Unit,
 ) {
     Surface(
@@ -289,7 +357,6 @@ private fun BrowserTopBar(
         tonalElevation = 3.dp,
     ) {
         Column(modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars)) {
-            // URL bar row
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -338,6 +405,25 @@ private fun BrowserTopBar(
                             if (isBookmarked) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurface,
                     )
+                }
+                // Tab count button — rounded square with count, like Chrome mobile
+                IconButton(onClick = onShowTabs) {
+                    Box(
+                        modifier =
+                            Modifier.size(24.dp).border(
+                                width = 2.dp,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                shape = RoundedCornerShape(4.dp),
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = if (tabCount > 9) "9+" else tabCount.toString(),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
                 }
                 Box {
                     IconButton(onClick = { onMenuExpandChange(true) }) {
@@ -396,11 +482,127 @@ private fun BrowserTopBar(
                     }
                 }
             }
-            // Loading indicator
             if (isLoading) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth().height(2.dp))
             } else {
                 Spacer(modifier = Modifier.height(2.dp))
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun TabsSheet(
+    tabs: List<BrowserTab>,
+    activeTabId: Int,
+    onTabClick: (Int) -> Unit,
+    onTabClose: (Int) -> Unit,
+    onNewTab: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false),
+    ) {
+        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+            Row(
+                modifier =
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = stringResource(R.string.browser_tabs, tabs.size),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                FilledTonalButton(
+                    onClick = onNewTab,
+                    enabled = tabs.size < MAX_TABS,
+                ) {
+                    Icon(Icons.Outlined.Add, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(stringResource(R.string.browser_new_tab))
+                }
+            }
+            HorizontalDivider()
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                contentPadding = PaddingValues(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(tabs, key = { it.id }) { tab ->
+                    TabCard(
+                        tab = tab,
+                        isActive = tab.id == activeTabId,
+                        onTabClick = { onTabClick(tab.id) },
+                        onTabClose = { onTabClose(tab.id) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TabCard(
+    tab: BrowserTab,
+    isActive: Boolean,
+    onTabClick: () -> Unit,
+    onTabClose: () -> Unit,
+) {
+    val borderColor =
+        if (isActive) MaterialTheme.colorScheme.primary
+        else MaterialTheme.colorScheme.outlineVariant
+    val borderWidth = if (isActive) 2.dp else 1.dp
+
+    Card(
+        modifier =
+            Modifier.fillMaxWidth()
+                .height(80.dp)
+                .border(borderWidth, borderColor, MaterialTheme.shapes.medium)
+                .clickable(onClick = onTabClick),
+        shape = MaterialTheme.shapes.medium,
+        colors =
+            CardDefaults.cardColors(
+                containerColor =
+                    if (isActive) MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant,
+            ),
+    ) {
+        Box(modifier = Modifier.fillMaxSize().padding(8.dp)) {
+            Column(modifier = Modifier.fillMaxWidth().padding(end = 24.dp)) {
+                Text(
+                    text = tab.title.ifEmpty { tab.url },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text =
+                        tab.url
+                            .removePrefix("https://")
+                            .removePrefix("http://")
+                            .substringBefore("/"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(
+                onClick = onTabClose,
+                modifier = Modifier.size(24.dp).align(Alignment.TopEnd),
+            ) {
+                Icon(
+                    Icons.Default.Close,
+                    stringResource(R.string.browser_close_tab),
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -435,7 +637,10 @@ private fun DetectedVideosSheet(urls: List<String>, onDownload: (String) -> Unit
                                 null,
                                 modifier = Modifier.size(18.dp),
                             )
-                            Text(stringResource(R.string.download), modifier = Modifier.padding(start = 4.dp))
+                            Text(
+                                stringResource(R.string.download),
+                                modifier = Modifier.padding(start = 4.dp),
+                            )
                         }
                     },
                     modifier = Modifier.clickable { onDownload(url) },

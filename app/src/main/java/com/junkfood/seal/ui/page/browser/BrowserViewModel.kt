@@ -8,20 +8,36 @@ import kotlinx.coroutines.flow.update
 const val BROWSER_HOME_URL = "https://www.google.com"
 const val DESKTOP_USER_AGENT =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+const val MAX_TABS = 10
+
+data class BrowserTab(
+    val id: Int,
+    val url: String = BROWSER_HOME_URL,
+    val title: String = "",
+)
 
 data class BrowserBookmark(val title: String, val url: String)
 
 data class BrowserUiState(
+    val tabs: List<BrowserTab> = listOf(BrowserTab(id = 0)),
+    val activeTabIndex: Int = 0,
     val detectedVideoUrls: Set<String> = emptySet(),
     val bookmarks: List<BrowserBookmark> = emptyList(),
     val isDesktopMode: Boolean = false,
     val showBookmarksSheet: Boolean = false,
     val showVideoSheet: Boolean = false,
-)
+    val showTabsSheet: Boolean = false,
+    val showMaxTabsSnackbar: Boolean = false,
+) {
+    val activeTab: BrowserTab
+        get() = tabs.getOrElse(activeTabIndex) { tabs.first() }
+}
 
 class BrowserViewModel : ViewModel() {
     private val _uiState = MutableStateFlow(BrowserUiState())
     val uiState = _uiState.asStateFlow()
+
+    private var nextTabId = 1
 
     // Called from background thread via shouldInterceptRequest — StateFlow.update is thread-safe
     fun onVideoDetected(url: String) {
@@ -42,7 +58,7 @@ class BrowserViewModel : ViewModel() {
             state.copy(
                 bookmarks =
                     if (alreadyBookmarked) state.bookmarks.filter { it.url != url }
-                    else state.bookmarks + BrowserBookmark(title.ifEmpty { url }, url)
+                    else state.bookmarks + BrowserBookmark(title.ifEmpty { url }, url),
             )
         }
     }
@@ -56,4 +72,86 @@ class BrowserViewModel : ViewModel() {
     fun hideVideoSheet() = _uiState.update { it.copy(showVideoSheet = false) }
 
     fun isBookmarked(url: String) = _uiState.value.bookmarks.any { it.url == url }
+
+    fun showTabsSheet() = _uiState.update { it.copy(showTabsSheet = true) }
+
+    fun hideTabsSheet() = _uiState.update { it.copy(showTabsSheet = false) }
+
+    fun dismissMaxTabsSnackbar() = _uiState.update { it.copy(showMaxTabsSnackbar = false) }
+
+    fun addTab(url: String = BROWSER_HOME_URL) {
+        _uiState.update { state ->
+            if (state.tabs.size >= MAX_TABS) {
+                state.copy(showMaxTabsSnackbar = true)
+            } else {
+                val newTab = BrowserTab(id = nextTabId++, url = url)
+                state.copy(
+                    tabs = state.tabs + newTab,
+                    activeTabIndex = state.tabs.size,
+                    showTabsSheet = false,
+                    showBookmarksSheet = false,
+                    showVideoSheet = false,
+                )
+            }
+        }
+    }
+
+    fun closeTab(tabId: Int) {
+        _uiState.update { state ->
+            val tabIndex = state.tabs.indexOfFirst { it.id == tabId }
+            if (tabIndex == -1) return@update state
+
+            val newTabs = state.tabs.toMutableList().also { it.removeAt(tabIndex) }
+
+            if (newTabs.isEmpty()) {
+                val fallbackTab = BrowserTab(id = nextTabId++)
+                return@update state.copy(
+                    tabs = listOf(fallbackTab),
+                    activeTabIndex = 0,
+                    showBookmarksSheet = false,
+                    showVideoSheet = false,
+                )
+            }
+
+            val newActiveIndex = when {
+                state.activeTabIndex >= newTabs.size -> newTabs.size - 1
+                tabIndex < state.activeTabIndex -> state.activeTabIndex - 1
+                else -> state.activeTabIndex
+            }
+            state.copy(
+                tabs = newTabs,
+                activeTabIndex = newActiveIndex,
+                showBookmarksSheet = false,
+                showVideoSheet = false,
+            )
+        }
+    }
+
+    fun switchToTab(tabId: Int) {
+        _uiState.update { state ->
+            val index = state.tabs.indexOfFirst { it.id == tabId }
+            if (index == -1) state
+            else
+                state.copy(
+                    activeTabIndex = index,
+                    showTabsSheet = false,
+                    showBookmarksSheet = false,
+                    showVideoSheet = false,
+                )
+        }
+    }
+
+    fun updateTabUrl(tabId: Int, url: String) {
+        _uiState.update { state ->
+            state.copy(tabs = state.tabs.map { if (it.id == tabId) it.copy(url = url) else it })
+        }
+    }
+
+    fun updateTabTitle(tabId: Int, title: String) {
+        _uiState.update { state ->
+            state.copy(
+                tabs = state.tabs.map { if (it.id == tabId) it.copy(title = title) else it }
+            )
+        }
+    }
 }
