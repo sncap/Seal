@@ -35,13 +35,13 @@ jobs:
         run: ./gradlew assembleGenericRelease -PnoSplits
 
       - name: List APKs
-        run: find app/build/outputs/apk/genericRelease -name "*.apk" | sort
+        run: find app/build/outputs/apk/generic/release -name "*.apk" | sort
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: myBrowser-release
-          path: app/build/outputs/apk/genericRelease/*.apk
+          path: app/build/outputs/apk/generic/release/*.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -51,6 +51,6 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: "myBrowser build #${{ github.run_number }}"
           prerelease: true
-          files: app/build/outputs/apk/genericRelease/*.apk
+          files: app/build/outputs/apk/generic/release/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
