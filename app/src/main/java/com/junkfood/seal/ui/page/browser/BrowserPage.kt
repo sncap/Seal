@@ -121,14 +121,17 @@ fun BrowserPage(
     val webViewState = rememberWebViewState(BROWSER_HOME_URL)
     val navigator = rememberWebViewNavigator()
 
-    // Track whether desktop mode changed after initial composition to avoid spurious reload
+    // Capture WebView instance from factory to update UA on desktop mode toggle
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+
+    // Skip the first emission; only reload when user explicitly toggles
     var desktopModeInitialized by remember { mutableStateOf(false) }
     LaunchedEffect(uiState.isDesktopMode) {
         if (!desktopModeInitialized) {
             desktopModeInitialized = true
             return@LaunchedEffect
         }
-        webViewState.webView?.settings?.userAgentString =
+        webViewRef?.settings?.userAgentString =
             if (uiState.isDesktopMode) DESKTOP_USER_AGENT else null
         navigator.reload()
     }
@@ -217,6 +220,7 @@ fun BrowserPage(
                         javaScriptCanOpenWindowsAutomatically = true
                         if (uiState.isDesktopMode) userAgentString = DESKTOP_USER_AGENT
                     }
+                    webViewRef = this
                 }
             },
         )
