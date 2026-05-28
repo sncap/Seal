@@ -21,31 +21,28 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v3
 
-      - name: Build release APK
+      - name: Decode keystore and write keystore.properties
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > mybrowser-release.keystore
+          cat > keystore.properties <<EOF
+          storeFile=../mybrowser-release.keystore
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          EOF
+
+      - name: Build and sign release APK
         run: ./gradlew assembleGenericRelease -PnoSplits
 
-      - name: Sign APK
-        id: sign_apk
-        uses: ilharp/sign-android-release@nightly
-        with:
-          releaseDir: app/build/outputs/apk/genericRelease
-          signingKey: ${{ secrets.KEYSTORE_BASE64 }}
-          keyAlias: ${{ secrets.KEY_ALIAS }}
-          keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
-          keyPassword: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Get version name
-        id: version
-        run: |
-          VERSION=$(./gradlew -q printVersionName 2>/dev/null || grep "versionName" app/build.gradle.kts | head -1 | sed 's/.*= *//' | tr -d '"')
-          echo "name=${VERSION}" >> $GITHUB_OUTPUT
+      - name: List APKs
+        run: find app/build/outputs/apk/genericRelease -name "*.apk" | sort
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: myBrowser-release
-          path: app/build/outputs/apk/genericRelease/*-signed.apk
-          if-no-files-found: warn
+          path: app/build/outputs/apk/genericRelease/*.apk
+          if-no-files-found: error
           retention-days: 30
 
       - name: Create GitHub Release
@@ -54,6 +51,6 @@ jobs:
           tag_name: build-${{ github.run_number }}
           name: "myBrowser build #${{ github.run_number }}"
           prerelease: true
-          files: app/build/outputs/apk/genericRelease/*-signed.apk
+          files: app/build/outputs/apk/genericRelease/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
