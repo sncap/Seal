@@ -43,7 +43,6 @@ import androidx.compose.material.icons.outlined.Bookmark
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DesktopWindows
-import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PhoneAndroid
@@ -68,7 +67,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -211,7 +209,7 @@ private fun BrowserTabContent(
         object : AccompanistWebViewClient() {
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
                 super.onPageStarted(view, url, favicon)
-                viewModel.clearDetectedVideos()
+                viewModel.clearDetectedVideo()
             }
 
             override fun shouldInterceptRequest(
@@ -266,8 +264,14 @@ private fun BrowserTabContent(
             )
         },
         floatingActionButton = {
-            if (uiState.detectedVideoUrls.isNotEmpty()) {
-                FloatingActionButton(onClick = { viewModel.showVideoSheet() }) {
+            val videoUrl = uiState.detectedVideoUrl
+            if (videoUrl != null) {
+                FloatingActionButton(
+                    onClick = {
+                        viewModel.clearDetectedVideo()
+                        onDownloadUrl(videoUrl)
+                    }
+                ) {
                     Icon(Icons.Outlined.VideoLibrary, stringResource(R.string.download))
                 }
             }
@@ -292,21 +296,6 @@ private fun BrowserTabContent(
                 }
             },
         )
-    }
-
-    if (uiState.showVideoSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { viewModel.hideVideoSheet() },
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        ) {
-            DetectedVideosSheet(
-                urls = uiState.detectedVideoUrls.toList(),
-                onDownload = { url ->
-                    viewModel.hideVideoSheet()
-                    onDownloadUrl(url)
-                },
-            )
-        }
     }
 
     if (uiState.showBookmarksSheet) {
@@ -602,48 +591,6 @@ private fun TabCard(
                     stringResource(R.string.browser_close_tab),
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DetectedVideosSheet(urls: List<String>, onDownload: (String) -> Unit) {
-    Column(modifier = Modifier.padding(bottom = 16.dp)) {
-        Text(
-            text = stringResource(R.string.browser_detected_videos),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        )
-        HorizontalDivider()
-        LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
-            items(urls) { url ->
-                ListItem(
-                    headlineContent = {
-                        Text(
-                            url.substringAfterLast("/").substringBefore("?").ifEmpty { url },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    },
-                    supportingContent = {
-                        Text(url, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    },
-                    trailingContent = {
-                        TextButton(onClick = { onDownload(url) }) {
-                            Icon(
-                                Icons.Outlined.Download,
-                                null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Text(
-                                stringResource(R.string.download),
-                                modifier = Modifier.padding(start = 4.dp),
-                            )
-                        }
-                    },
-                    modifier = Modifier.clickable { onDownload(url) },
                 )
             }
         }

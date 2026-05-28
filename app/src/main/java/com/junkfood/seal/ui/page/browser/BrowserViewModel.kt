@@ -21,11 +21,10 @@ data class BrowserBookmark(val title: String, val url: String)
 data class BrowserUiState(
     val tabs: List<BrowserTab> = listOf(BrowserTab(id = 0)),
     val activeTabIndex: Int = 0,
-    val detectedVideoUrls: Set<String> = emptySet(),
+    val detectedVideoUrl: String? = null,
     val bookmarks: List<BrowserBookmark> = emptyList(),
     val isDesktopMode: Boolean = false,
     val showBookmarksSheet: Boolean = false,
-    val showVideoSheet: Boolean = false,
     val showTabsSheet: Boolean = false,
     val showMaxTabsSnackbar: Boolean = false,
 ) {
@@ -41,11 +40,11 @@ class BrowserViewModel : ViewModel() {
 
     // Called from background thread via shouldInterceptRequest — StateFlow.update is thread-safe
     fun onVideoDetected(url: String) {
-        _uiState.update { it.copy(detectedVideoUrls = it.detectedVideoUrls + url) }
+        _uiState.update { it.copy(detectedVideoUrl = url) }
     }
 
-    fun clearDetectedVideos() {
-        _uiState.update { it.copy(detectedVideoUrls = emptySet(), showVideoSheet = false) }
+    fun clearDetectedVideo() {
+        _uiState.update { it.copy(detectedVideoUrl = null) }
     }
 
     fun toggleDesktopMode() {
@@ -67,10 +66,6 @@ class BrowserViewModel : ViewModel() {
 
     fun hideBookmarks() = _uiState.update { it.copy(showBookmarksSheet = false) }
 
-    fun showVideoSheet() = _uiState.update { it.copy(showVideoSheet = true) }
-
-    fun hideVideoSheet() = _uiState.update { it.copy(showVideoSheet = false) }
-
     fun isBookmarked(url: String) = _uiState.value.bookmarks.any { it.url == url }
 
     fun showTabsSheet() = _uiState.update { it.copy(showTabsSheet = true) }
@@ -90,7 +85,6 @@ class BrowserViewModel : ViewModel() {
                     activeTabIndex = state.tabs.size,
                     showTabsSheet = false,
                     showBookmarksSheet = false,
-                    showVideoSheet = false,
                 )
             }
         }
@@ -109,7 +103,6 @@ class BrowserViewModel : ViewModel() {
                     tabs = listOf(fallbackTab),
                     activeTabIndex = 0,
                     showBookmarksSheet = false,
-                    showVideoSheet = false,
                 )
             }
 
@@ -122,7 +115,6 @@ class BrowserViewModel : ViewModel() {
                 tabs = newTabs,
                 activeTabIndex = newActiveIndex,
                 showBookmarksSheet = false,
-                showVideoSheet = false,
             )
         }
     }
@@ -136,7 +128,6 @@ class BrowserViewModel : ViewModel() {
                     activeTabIndex = index,
                     showTabsSheet = false,
                     showBookmarksSheet = false,
-                    showVideoSheet = false,
                 )
         }
     }
