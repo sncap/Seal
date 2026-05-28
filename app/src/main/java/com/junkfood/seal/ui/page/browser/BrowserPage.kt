@@ -1,11 +1,8 @@
 package com.junkfood.seal.ui.page.browser
 
 import android.annotation.SuppressLint
-import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Patterns
-import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -96,17 +93,6 @@ import com.google.accompanist.web.rememberWebViewNavigator
 import com.google.accompanist.web.rememberWebViewState
 import com.junkfood.seal.R
 import org.koin.androidx.compose.koinViewModel
-
-private val MEDIA_EXTENSIONS = setOf("mp4", "m3u8", "webm", "mkv", "ts", "mpd", "avi", "mov")
-private val MEDIA_KEYWORDS = listOf("videoplayback", "mime=video", "manifest.m3u8", "/video/mp4")
-
-private fun isMediaUrl(url: String): Boolean {
-    val lower = url.lowercase()
-    val path = lower.substringBefore("?")
-    if (MEDIA_EXTENSIONS.any { path.endsWith(".$it") }) return true
-    if (MEDIA_KEYWORDS.any { lower.contains(it) }) return true
-    return false
-}
 
 private fun normalizeUrl(input: String): String {
     val trimmed = input.trim()
@@ -205,23 +191,7 @@ private fun BrowserTabContent(
         webViewState.pageTitle?.let { viewModel.updateTabTitle(activeTab.id, it) }
     }
 
-    val webViewClient = remember(viewModel) {
-        object : AccompanistWebViewClient() {
-            override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
-                super.onPageStarted(view, url, favicon)
-                viewModel.clearDetectedVideo()
-            }
-
-            override fun shouldInterceptRequest(
-                view: WebView,
-                request: WebResourceRequest,
-            ): WebResourceResponse? {
-                val url = request.url.toString()
-                if (isMediaUrl(url)) viewModel.onVideoDetected(url)
-                return super.shouldInterceptRequest(view, request)
-            }
-        }
-    }
+    val webViewClient = remember { AccompanistWebViewClient() }
     val webViewChromeClient = remember { AccompanistWebChromeClient() }
 
     Scaffold(
@@ -264,14 +234,9 @@ private fun BrowserTabContent(
             )
         },
         floatingActionButton = {
-            val videoUrl = uiState.detectedVideoUrl
-            if (videoUrl != null) {
-                FloatingActionButton(
-                    onClick = {
-                        viewModel.clearDetectedVideo()
-                        onDownloadUrl(videoUrl)
-                    }
-                ) {
+            val currentUrl = webViewState.lastLoadedUrl ?: activeTab.url
+            if (currentUrl.isNotEmpty() && currentUrl != BROWSER_HOME_URL) {
+                FloatingActionButton(onClick = { onDownloadUrl(currentUrl) }) {
                     Icon(Icons.Outlined.VideoLibrary, stringResource(R.string.download))
                 }
             }

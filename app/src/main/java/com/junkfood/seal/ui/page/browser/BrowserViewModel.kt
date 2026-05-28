@@ -21,7 +21,6 @@ data class BrowserBookmark(val title: String, val url: String)
 data class BrowserUiState(
     val tabs: List<BrowserTab> = listOf(BrowserTab(id = 0)),
     val activeTabIndex: Int = 0,
-    val detectedVideoUrl: String? = null,
     val bookmarks: List<BrowserBookmark> = emptyList(),
     val isDesktopMode: Boolean = false,
     val showBookmarksSheet: Boolean = false,
@@ -37,15 +36,6 @@ class BrowserViewModel : ViewModel() {
     val uiState = _uiState.asStateFlow()
 
     private var nextTabId = 1
-
-    // Called from background thread via shouldInterceptRequest — StateFlow.update is thread-safe
-    fun onVideoDetected(url: String) {
-        _uiState.update { it.copy(detectedVideoUrl = url) }
-    }
-
-    fun clearDetectedVideo() {
-        _uiState.update { it.copy(detectedVideoUrl = null) }
-    }
 
     fun toggleDesktopMode() {
         _uiState.update { it.copy(isDesktopMode = !it.isDesktopMode) }
