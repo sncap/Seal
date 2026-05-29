@@ -1,10 +1,10 @@
 package com.junkfood.seal.ui.page.browser
 
 import android.annotation.SuppressLint
+import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Patterns
 import android.webkit.WebView
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -41,6 +41,7 @@ import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DesktopWindows
 import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Refresh
@@ -106,6 +107,7 @@ private fun normalizeUrl(input: String): String {
 @Composable
 fun BrowserPage(
     viewModel: BrowserViewModel = koinViewModel(),
+    onMenuOpen: () -> Unit = {},
     onDownloadUrl: (String) -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -120,12 +122,13 @@ fun BrowserPage(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Keyed by active tab ID — destroys and recreates WebView state on tab switch
+        // Keyed by active tab ID — recreates WebView state (and reloads URL) on tab switch
         key(uiState.activeTab.id) {
             BrowserTabContent(
                 viewModel = viewModel,
                 uiState = uiState,
                 snackbarHostState = snackbarHostState,
+                onMenuOpen = onMenuOpen,
                 onDownloadUrl = onDownloadUrl,
             )
         }
@@ -136,7 +139,7 @@ fun BrowserPage(
         )
     }
 
-    // Tabs sheet is outside the key so it persists while open
+    // Tabs sheet outside key so it persists while open
     if (uiState.showTabsSheet) {
         TabsSheet(
             tabs = uiState.tabs,
@@ -156,13 +159,18 @@ private fun BrowserTabContent(
     viewModel: BrowserViewModel,
     uiState: BrowserUiState,
     snackbarHostState: SnackbarHostState,
+    onMenuOpen: () -> Unit,
     onDownloadUrl: (String) -> Unit,
 ) {
     val focusManager = LocalFocusManager.current
     val activeTab = uiState.activeTab
 
-    var urlInput by rememberSaveable { mutableStateOf(activeTab.url) }
-    var isEditingUrl by remember { mutableStateOf(false) }
+    // Use State objects directly so the WebViewClient lambda can safely reference them
+    val urlInputState = remember { mutableStateOf(activeTab.url) }
+    var urlInput by urlInputState
+    val isEditingUrlState = remember { mutableStateOf(false) }
+    var isEditingUrl by isEditingUrlState
+
     var showMenu by remember { mutableStateOf(false) }
 
     val webViewState = rememberWebViewState(activeTab.url)
@@ -180,18 +188,28 @@ private fun BrowserTabContent(
         navigator.reload()
     }
 
-    LaunchedEffect(webViewState.lastLoadedUrl) {
-        if (!isEditingUrl) {
-            urlInput = webViewState.lastLoadedUrl ?: urlInput
-        }
-        webViewState.lastLoadedUrl?.let { viewModel.updateTabUrl(activeTab.id, it) }
-    }
-
     LaunchedEffect(webViewState.pageTitle) {
         webViewState.pageTitle?.let { viewModel.updateTabTitle(activeTab.id, it) }
     }
 
-    val webViewClient = remember { AccompanistWebViewClient() }
+    // Custom client: tracks URL via onPageStarted/onPageFinished so the URL bar
+    // stays correct for full-page navigations (SPA navigation uses webViewRef.url at click time)
+    val webViewClient = remember {
+        object : AccompanistWebViewClient() {
+            override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                if (url != null && !isEditingUrlState.value) urlInputState.value = url
+            }
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                super.onPageFinished(view, url)
+                if (url != null) {
+                    viewModel.updateTabUrl(activeTab.id, url)
+                    if (!isEditingUrlState.value) urlInputState.value = url
+                }
+            }
+        }
+    }
     val webViewChromeClient = remember { AccompanistWebChromeClient() }
 
     Scaffold(
@@ -201,17 +219,17 @@ private fun BrowserTabContent(
                 urlInput = urlInput,
                 isLoading = webViewState.isLoading,
                 isDesktopMode = uiState.isDesktopMode,
-                isBookmarked =
-                    uiState.bookmarks.any { it.url == (webViewState.lastLoadedUrl ?: "") },
+                isBookmarked = uiState.bookmarks.any { it.url == (webViewRef?.url ?: urlInput) },
                 canGoBack = navigator.canGoBack,
                 canGoForward = navigator.canGoForward,
                 tabCount = uiState.tabs.size,
                 showMenu = showMenu,
+                onMenuOpen = onMenuOpen,
                 onUrlChange = { urlInput = it },
-                onUrlFocusChange = { isEditingUrl = it },
+                onUrlFocusChange = { isEditingUrlState.value = it },
                 onNavigate = { url ->
                     focusManager.clearFocus()
-                    isEditingUrl = false
+                    isEditingUrlState.value = false
                     navigator.loadUrl(normalizeUrl(url))
                 },
                 onBack = { navigator.navigateBack() },
@@ -224,7 +242,7 @@ private fun BrowserTabContent(
                 onToggleBookmark = {
                     viewModel.toggleBookmark(
                         title = webViewState.pageTitle ?: "",
-                        url = webViewState.lastLoadedUrl ?: "",
+                        url = webViewRef?.url ?: urlInput,
                     )
                 },
                 onToggleDesktopMode = { viewModel.toggleDesktopMode() },
@@ -234,11 +252,16 @@ private fun BrowserTabContent(
             )
         },
         floatingActionButton = {
-            val currentUrl = webViewState.lastLoadedUrl ?: activeTab.url
-            if (currentUrl.isNotEmpty() && currentUrl != BROWSER_HOME_URL) {
-                FloatingActionButton(onClick = { onDownloadUrl(currentUrl) }) {
-                    Icon(Icons.Outlined.VideoLibrary, stringResource(R.string.download))
+            // Always visible; reads webViewRef.url at click time to get the true current URL,
+            // including SPA-navigated pages (e.g. YouTube video pages) that don't fire
+            // onPageFinished and therefore don't update webViewState.lastLoadedUrl
+            FloatingActionButton(
+                onClick = {
+                    val url = webViewRef?.url?.takeIf { it.isNotEmpty() } ?: urlInput
+                    if (url.isNotEmpty()) onDownloadUrl(url)
                 }
+            ) {
+                Icon(Icons.Outlined.VideoLibrary, stringResource(R.string.download))
             }
         },
     ) { paddingValues ->
@@ -293,6 +316,7 @@ private fun BrowserTopBar(
     canGoForward: Boolean,
     tabCount: Int,
     showMenu: Boolean,
+    onMenuOpen: () -> Unit,
     onUrlChange: (String) -> Unit,
     onUrlFocusChange: (Boolean) -> Unit,
     onNavigate: (String) -> Unit,
@@ -315,6 +339,10 @@ private fun BrowserTopBar(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // Navigation drawer opener
+                IconButton(onClick = onMenuOpen) {
+                    Icon(Icons.Outlined.Menu, contentDescription = null)
+                }
                 IconButton(onClick = onBack, enabled = canGoBack) {
                     Icon(
                         Icons.AutoMirrored.Outlined.ArrowBack,
@@ -360,7 +388,7 @@ private fun BrowserTopBar(
                             else MaterialTheme.colorScheme.onSurface,
                     )
                 }
-                // Tab count button — rounded square with count, like Chrome mobile
+                // Tab count button — rounded square with number, like Chrome mobile
                 IconButton(onClick = onShowTabs) {
                     Box(
                         modifier =

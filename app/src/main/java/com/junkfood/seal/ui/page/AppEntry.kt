@@ -65,6 +65,7 @@ import com.junkfood.seal.ui.page.settings.network.CookiesViewModel
 import com.junkfood.seal.ui.page.settings.network.NetworkPreferences
 import com.junkfood.seal.ui.page.settings.network.WebViewPage
 import com.junkfood.seal.ui.page.browser.BrowserPage
+import com.junkfood.seal.ui.page.browser.BrowserViewModel
 import com.junkfood.seal.ui.page.settings.troubleshooting.TroubleShootingPage
 import com.junkfood.seal.ui.page.videolist.VideoListPage
 import kotlinx.coroutines.launch
@@ -84,6 +85,8 @@ fun AppEntry(dialogViewModel: DownloadDialogViewModel) {
     val windowWidth = LocalWindowWidthState.current
     val sheetState by dialogViewModel.sheetStateFlow.collectAsStateWithLifecycle()
     val cookiesViewModel: CookiesViewModel = koinViewModel()
+    // Activity-scoped so tab state survives navigation to other destinations
+    val browserViewModel: BrowserViewModel = koinViewModel()
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val versionReport = App.packageInfo.versionName.toString()
@@ -156,11 +159,16 @@ fun AppEntry(dialogViewModel: DownloadDialogViewModel) {
                 animatedComposable(Route.DOWNLOADS) { VideoListPage { onNavigateBack() } }
                 animatedComposable(Route.BROWSER) {
                     BrowserPage(
+                        viewModel = browserViewModel,
+                        onMenuOpen = {
+                            view.slightHapticFeedback()
+                            scope.launch { drawerState.open() }
+                        },
                         onDownloadUrl = { url ->
                             dialogViewModel.postAction(
                                 DownloadDialogViewModel.Action.ShowSheet(urlList = listOf(url))
                             )
-                        }
+                        },
                     )
                 }
                 animatedComposableVariant(Route.TASK_LIST) {
