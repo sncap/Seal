@@ -95,6 +95,50 @@ import com.google.accompanist.web.rememberWebViewState
 import com.junkfood.seal.R
 import org.koin.androidx.compose.koinViewModel
 
+/** Strips tracking params and platform-specific path noise before handing a URL to yt-dlp. */
+private fun cleanDownloadUrl(url: String): String {
+    val uri = Uri.parse(url)
+    val host = uri.host?.lowercase() ?: return url
+    return when {
+        // X / Twitter: keep only scheme+host+/user/status/ID, drop mediaViewer, /photo/N, /video/N
+        host.endsWith("x.com") || host.endsWith("twitter.com") -> {
+            val segments = uri.pathSegments
+            val statusIdx = segments.indexOf("status")
+            if (statusIdx != -1 && statusIdx + 1 < segments.size) {
+                val cleanPath = "/" + segments.take(statusIdx + 2).joinToString("/")
+                Uri.Builder()
+                    .scheme(uri.scheme)
+                    .authority(uri.authority)
+                    .path(cleanPath)
+                    .build()
+                    .toString()
+            } else {
+                uri.buildUpon().clearQuery().build().toString()
+            }
+        }
+        // YouTube: keep only the v= parameter, strip si= and other tracking params
+        host.endsWith("youtube.com") -> {
+            val videoId = uri.getQueryParameter("v")
+            if (videoId != null) {
+                Uri.Builder()
+                    .scheme(uri.scheme)
+                    .authority(uri.authority)
+                    .path(uri.path)
+                    .appendQueryParameter("v", videoId)
+                    .build()
+                    .toString()
+            } else {
+                url
+            }
+        }
+        // youtu.be short links are clean as-is
+        host.endsWith("youtu.be") -> url
+        // TikTok: strip all query params
+        host.endsWith("tiktok.com") -> uri.buildUpon().clearQuery().build().toString()
+        else -> url
+    }
+}
+
 private fun normalizeUrl(input: String): String {
     val trimmed = input.trim()
     return when {
@@ -257,8 +301,8 @@ private fun BrowserTabContent(
             // onPageFinished and therefore don't update webViewState.lastLoadedUrl
             FloatingActionButton(
                 onClick = {
-                    val url = webViewRef?.url?.takeIf { it.isNotEmpty() } ?: urlInput
-                    if (url.isNotEmpty()) onDownloadUrl(url)
+                    val raw = webViewRef?.url?.takeIf { it.isNotEmpty() } ?: urlInput
+                    if (raw.isNotEmpty()) onDownloadUrl(cleanDownloadUrl(raw))
                 }
             ) {
                 Icon(Icons.Outlined.VideoLibrary, stringResource(R.string.download))
