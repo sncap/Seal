@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.net.Uri
 import android.util.Patterns
+import android.webkit.CookieManager
 import android.webkit.WebView
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -95,7 +96,6 @@ import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewNavigator
 import com.google.accompanist.web.rememberWebViewState
 import com.junkfood.seal.R
-import com.junkfood.seal.util.DownloadUtil
 import com.junkfood.seal.util.FileUtil
 import com.junkfood.seal.util.FileUtil.getCookiesFile
 import kotlinx.coroutines.Dispatchers
@@ -144,6 +144,37 @@ private fun cleanDownloadUrl(url: String): String {
         // TikTok: strip all query params
         host.endsWith("tiktok.com") -> uri.buildUpon().clearQuery().build().toString()
         else -> url
+    }
+}
+
+/**
+ * Reads current WebView cookies for [url] via CookieManager and writes them to the yt-dlp
+ * cookies.txt in Netscape format. Uses CookieManager.getCookie() directly (not SQLite) so
+ * it is always in sync with the active session, including sites like X/Twitter.
+ * Returns silently if no cookies are found.
+ */
+private suspend fun syncCookiesForUrl(context: android.content.Context, url: String) {
+    val host = Uri.parse(url).host ?: return
+    // CookieManager is safe to access from any thread on API 21+
+    val cm = CookieManager.getInstance()
+    cm.flush()
+    val cookieHeader = cm.getCookie(url)?.takeIf { it.isNotEmpty() } ?: return
+
+    val dotDomain = if (host.startsWith(".")) host else ".$host"
+    val content = buildString {
+        append("# Netscape HTTP Cookie File\n")
+        cookieHeader.split(";").forEach { part ->
+            val eq = part.indexOf('=')
+            if (eq > 0) {
+                val name = part.substring(0, eq).trim()
+                val value = part.substring(eq + 1).trim()
+                // Netscape format: domain  includeSubdomains  path  secure  expiry  name  value
+                append("$dotDomain\tTRUE\t/\tTRUE\t0\t$name\t$value\n")
+            }
+        }
+    }
+    withContext(Dispatchers.IO) {
+        FileUtil.writeContentToFile(content, context.getCookiesFile())
     }
 }
 
@@ -306,22 +337,18 @@ private fun BrowserTabContent(
             )
         },
         floatingActionButton = {
-            // Always visible; reads webViewRef.url at click time (tracks SPA navigation),
-            // flushes WebView cookies to cookies.txt so yt-dlp can use them for auth-gated
-            // sites like X/Twitter, then triggers the download dialog.
+            // Always visible; reads webViewRef.url at click time (correct for SPA navigation).
+            // Before opening the download dialog, syncs WebView cookies directly from
+            // CookieManager into cookies.txt so yt-dlp can use them for auth-gated sites.
+            // Cookie sync is best-effort — any failure is silently caught and the download
+            // dialog opens regardless.
             FloatingActionButton(
                 onClick = {
                     val raw = webViewRef?.url?.takeIf { it.isNotEmpty() } ?: urlInput
                     if (raw.isNotEmpty()) {
                         val cleanUrl = cleanDownloadUrl(raw)
                         scope.launch {
-                            // Flush CookieManager → re-read SQLite → overwrite cookies.txt
-                            // so yt-dlp picks up the user's current login session cookies.
-                            withContext(Dispatchers.IO) {
-                                DownloadUtil.getCookiesContentFromDatabase()
-                                    .getOrNull()
-                                    ?.let { FileUtil.writeContentToFile(it, context.getCookiesFile()) }
-                            }
+                            runCatching { syncCookiesForUrl(context, raw) }
                             onDownloadUrl(cleanUrl)
                         }
                     }
