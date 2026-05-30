@@ -74,12 +74,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -93,6 +95,12 @@ import com.google.accompanist.web.WebView
 import com.google.accompanist.web.rememberWebViewNavigator
 import com.google.accompanist.web.rememberWebViewState
 import com.junkfood.seal.R
+import com.junkfood.seal.util.DownloadUtil
+import com.junkfood.seal.util.FileUtil
+import com.junkfood.seal.util.FileUtil.getCookiesFile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.koin.androidx.compose.koinViewModel
 
 /** Strips tracking params and platform-specific path noise before handing a URL to yt-dlp. */
@@ -206,6 +214,8 @@ private fun BrowserTabContent(
     onMenuOpen: () -> Unit,
     onDownloadUrl: (String) -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
     val activeTab = uiState.activeTab
 
@@ -296,13 +306,25 @@ private fun BrowserTabContent(
             )
         },
         floatingActionButton = {
-            // Always visible; reads webViewRef.url at click time to get the true current URL,
-            // including SPA-navigated pages (e.g. YouTube video pages) that don't fire
-            // onPageFinished and therefore don't update webViewState.lastLoadedUrl
+            // Always visible; reads webViewRef.url at click time (tracks SPA navigation),
+            // flushes WebView cookies to cookies.txt so yt-dlp can use them for auth-gated
+            // sites like X/Twitter, then triggers the download dialog.
             FloatingActionButton(
                 onClick = {
                     val raw = webViewRef?.url?.takeIf { it.isNotEmpty() } ?: urlInput
-                    if (raw.isNotEmpty()) onDownloadUrl(cleanDownloadUrl(raw))
+                    if (raw.isNotEmpty()) {
+                        val cleanUrl = cleanDownloadUrl(raw)
+                        scope.launch {
+                            // Flush CookieManager → re-read SQLite → overwrite cookies.txt
+                            // so yt-dlp picks up the user's current login session cookies.
+                            withContext(Dispatchers.IO) {
+                                DownloadUtil.getCookiesContentFromDatabase()
+                                    .getOrNull()
+                                    ?.let { FileUtil.writeContentToFile(it, context.getCookiesFile()) }
+                            }
+                            onDownloadUrl(cleanUrl)
+                        }
+                    }
                 }
             ) {
                 Icon(Icons.Outlined.VideoLibrary, stringResource(R.string.download))
